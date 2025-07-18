@@ -1,0 +1,56 @@
+# Gitleaks configuration file
+# https://github.com/gitleaks/gitleaks
+
+title = "Gitleaks Configuration"
+
+[extend]
+# Extend the base configuration with additional rules
+useDefault = true
+
+# Custom rules for this project
+[[rules]]
+description = "Terraform Provider API Keys"
+id = "terraform-api-key"
+regex = '''(?i)(api_key|apikey|api-key)\s*[:=]\s*['"'][a-zA-Z0-9]{16,}['"]'''
+tags = ["terraform", "api", "key"]
+
+[[rules]]
+description = "AAP/Ansible Passwords"
+id = "aap-password"
+regex = '''(?i)(password|passwd|pwd)\s*[:=]\s*['"'][^'"\s]{8,}['"]'''
+tags = ["aap", "ansible", "password"]
+
+[[rules]]
+description = "AAP/Ansible Tokens"
+id = "aap-token"
+regex = '''(?i)(token|access_token|auth_token)\s*[:=]\s*['"'][a-zA-Z0-9\-_]{20,}['"]'''
+tags = ["aap", "ansible", "token"]
+
+# Allow certain test files and examples
+[allowlist]
+description = "Allowlist for test files and examples"
+files = [
+    '''internal/provider/.*_test\.go''',
+    '''examples/.*\.tf''',
+    '''testdata/.*''',
+]
+
+paths = ['''.*_test\.go''', '''go\.sum''', '''go\.mod''', '''\.git/''']
+
+# Allowlist for specific patterns that are not actually secrets
+regexes = [
+    '''example\.com''',
+    '''localhost''',
+    '''127\.0\.0\.1''',
+    '''test.*password''',
+    '''dummy.*token''',
+    '''fake.*key''',
+    '''placeholder.*secret''',
+    '''test123!''',
+    '''hashed_secret''',
+    '''password.*=.*["']test123!["']''',
+    '''["']hashed_secret["']''',
+    '''example.*secret''',
+    '''sample.*password''',
+    '''demo.*token'''
+]

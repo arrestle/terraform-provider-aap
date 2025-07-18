@@ -1,6 +1,6 @@
 include makefiles/golangci.mk
 
-.PHONY: build test lint
+.PHONY: build test lint secrets
 
 
 default: build
