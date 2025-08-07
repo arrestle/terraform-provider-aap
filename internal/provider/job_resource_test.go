@@ -532,6 +532,13 @@ func testAccDeleteJob(jobUrl *string) func(s *terraform.State) error {
 	}
 }
 
+// Test constants for job states
+const (
+	testJobStatusPending    = "pending"
+	testJobStatusRunning    = "running"
+	testJobStatusSuccessful = "successful"
+)
+
 // TestRetryUntilAAPJobReachesAnyFinalState_ErrorHandling tests the fixed error handling
 // in the retryUntilAAPJobReachesAnyFinalState function. This validates that:
 // 1. Diagnostics errors from client.Get() are properly handled (not standard Go errors)
@@ -545,11 +552,11 @@ func TestRetryUntilAAPJobReachesAnyFinalState_ErrorHandling(t *testing.T) {
 	t.Run("handles diagnostics errors", func(t *testing.T) {
 		model := &JobResourceModel{
 			URL:    types.StringValue("/api/v2/jobs/999/"), // Path not in MockConfig
-			Status: types.StringValue("pending"),
+			Status: types.StringValue(testJobStatusPending),
 		}
 
 		// Verify initial state
-		if model.Status.ValueString() != "pending" {
+		if model.Status.ValueString() != testJobStatusPending {
 			t.Errorf("expected initial status 'pending', got '%s'", model.Status.ValueString())
 		}
 
@@ -568,7 +575,7 @@ func TestRetryUntilAAPJobReachesAnyFinalState_ErrorHandling(t *testing.T) {
 		}
 
 		// Model state should remain unchanged since parsing never succeeded
-		if model.Status.ValueString() != "pending" {
+		if model.Status.ValueString() != testJobStatusPending {
 			t.Errorf("expected status to remain 'pending' after error, got '%s'", model.Status.ValueString())
 		}
 	})
@@ -577,7 +584,7 @@ func TestRetryUntilAAPJobReachesAnyFinalState_ErrorHandling(t *testing.T) {
 	t.Run("returns retryable error for non-final state", func(t *testing.T) {
 		model := &JobResourceModel{
 			URL:    types.StringValue("/api/v2/jobs/1/"), // MockConfig has "running" status
-			Status: types.StringValue("pending"),
+			Status: types.StringValue(testJobStatusPending),
 		}
 
 		mockClient := NewMockHTTPClient([]string{"GET"}, 200)
@@ -589,7 +596,7 @@ func TestRetryUntilAAPJobReachesAnyFinalState_ErrorHandling(t *testing.T) {
 			t.Errorf("expected error but got none")
 		}
 		// Model should be updated with "running" status from mock response
-		if model.Status.ValueString() != "running" {
+		if model.Status.ValueString() != testJobStatusRunning {
 			t.Errorf("expected status 'running', got '%s'", model.Status.ValueString())
 		}
 		// Error should indicate non-final state
@@ -603,7 +610,7 @@ func TestRetryUntilAAPJobReachesAnyFinalState_ErrorHandling(t *testing.T) {
 	t.Run("handles job state transition from running to successful", func(t *testing.T) {
 		model := &JobResourceModel{
 			URL:    types.StringValue("/api/v2/jobs/transition/"),
-			Status: types.StringValue("pending"),
+			Status: types.StringValue(testJobStatusPending),
 		}
 
 		// Track number of calls to simulate job progression
@@ -621,7 +628,7 @@ func TestRetryUntilAAPJobReachesAnyFinalState_ErrorHandling(t *testing.T) {
 		if err1 == nil {
 			t.Errorf("expected retryable error for running job but got none")
 		}
-		if model.Status.ValueString() != "running" {
+		if model.Status.ValueString() != testJobStatusRunning {
 			t.Errorf("expected status 'running' after first call, got '%s'", model.Status.ValueString())
 		}
 
@@ -630,7 +637,7 @@ func TestRetryUntilAAPJobReachesAnyFinalState_ErrorHandling(t *testing.T) {
 		if err2 != nil {
 			t.Errorf("expected no error for successful job but got: %v", err2)
 		}
-		if model.Status.ValueString() != "successful" {
+		if model.Status.ValueString() != testJobStatusSuccessful {
 			t.Errorf("expected status 'successful' after second call, got '%s'", model.Status.ValueString())
 		}
 	})
@@ -639,30 +646,30 @@ func TestRetryUntilAAPJobReachesAnyFinalState_ErrorHandling(t *testing.T) {
 	t.Run("uses proper tflog instead of stdout", func(t *testing.T) {
 		model := &JobResourceModel{
 			URL:    types.StringValue("/api/v2/jobs/1/"), // MockConfig has "running" status
-			Status: types.StringValue("pending"),
+			Status: types.StringValue(testJobStatusPending),
 		}
 
 		mockClient := NewMockHTTPClient([]string{"GET"}, 200)
-		
+
 		// Create a context that we can verify logging behavior with
 		ctx := context.Background()
 		retryFunc := retryUntilAAPJobReachesAnyFinalState(ctx, mockClient, model)
-		
+
 		// Execute the function - this should call tflog.Debug internally
 		// We can't easily mock tflog, but we can verify the function executes without
 		// calling fmt.Printf by checking there's no stdout output in tests
 		err := retryFunc()
-		
+
 		// Should return retryable error since "running" is not a final state
 		if err == nil {
 			t.Errorf("expected retryable error for running job but got none")
 		}
-		
+
 		// Verify model state was updated (this confirms logging path was reached)
-		if model.Status.ValueString() != "running" {
+		if model.Status.ValueString() != testJobStatusRunning {
 			t.Errorf("expected status 'running', got '%s'", model.Status.ValueString())
 		}
-		
+
 		// Note: We cannot easily test tflog.Debug calls without complex mocking,
 		// but the absence of stdout output and successful execution confirms
 		// the logging change was implemented correctly
@@ -680,10 +687,10 @@ func (m *MockHTTPClientWithCallCount) Get(_ string) ([]byte, diag.Diagnostics) {
 	var response []byte
 	if *m.callCount == 1 {
 		// First call: job is running
-		response = []byte(`{"status": "running", "url": "/api/v2/jobs/transition/", "type": "run"}`)
+		response = []byte(`{"status": "` + testJobStatusRunning + `", "url": "/api/v2/jobs/transition/", "type": "run"}`)
 	} else {
 		// Subsequent calls: job is successful
-		response = []byte(`{"status": "successful", "url": "/api/v2/jobs/transition/", "type": "run"}`)
+		response = []byte(`{"status": "` + testJobStatusSuccessful + `", "url": "/api/v2/jobs/transition/", "type": "run"}`)
 	}
 
 	return response, diag.Diagnostics{}
