@@ -18,6 +18,7 @@ import (
 	fwresource "github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+	"github.com/hashicorp/terraform-plugin-log/tflogtest"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -47,7 +48,7 @@ func TestJobResourceSchema(t *testing.T) {
 }
 
 func TestIsFinalStateAAPJob(t *testing.T) {
-	var testTable = []struct {
+	testTable := []struct {
 		name     string
 		input    string
 		expected bool
@@ -74,7 +75,7 @@ func TestIsFinalStateAAPJob(t *testing.T) {
 }
 
 func TestJobResourceCreateRequestBody(t *testing.T) {
-	var testTable = []struct {
+	testTable := []struct {
 		name     string
 		input    JobResourceModel
 		expected []byte
@@ -177,7 +178,7 @@ func TestJobResourceParseHttpResponse(t *testing.T) {
 	jsonError := diag.Diagnostics{}
 	jsonError.AddError("Error parsing JSON response from AAP", "invalid character 'N' looking for beginning of value")
 
-	var testTable = []struct {
+	testTable := []struct {
 		name     string
 		input    []byte
 		expected JobResourceModel
@@ -669,11 +670,84 @@ func TestRetryUntilAAPJobReachesAnyFinalState_ErrorHandling(t *testing.T) {
 		if model.Status.ValueString() != testJobStatusRunning {
 			t.Errorf("expected status 'running', got '%s'", model.Status.ValueString())
 		}
-
-		// Note: We cannot easily test tflog.Debug calls without complex mocking,
-		// but the absence of stdout output and successful execution confirms
-		// the logging change was implemented correctly
 	})
+}
+
+// TestRetryUntilAAPJobReachesAnyFinalState_LogCapture tests that tflog.Debug is called
+// by using a custom buffer to capture tflog output
+func TestRetryUntilAAPJobReachesAnyFinalState_LogCapture(t *testing.T) {
+	// Create a buffer to capture tflog output
+	var logBuffer strings.Builder
+
+	// Create a context with tflog writing to our buffer
+	ctx := tflogtest.RootLogger(context.Background(), &logBuffer)
+
+	// Create a mock client that returns a job in "running" state (non-final)
+	mockClient := NewMockHTTPClient([]string{"GET"}, 200)
+
+	// Create test model using the same URL pattern as other tests
+	model := &JobResourceModel{
+		TemplateID: types.Int64Value(7),
+		URL:        types.StringValue("/api/v2/jobs/1/"), // MockConfig URL
+		Status:     types.StringValue("pending"),         // Will be updated by ParseHttpResponse
+	}
+
+	// Execute the retry function once (should return retryable error since "running" is not final)
+	retryFunc := retryUntilAAPJobReachesAnyFinalState(ctx, mockClient, model)
+	err := retryFunc()
+
+	// Verify we get a retryable error since "running" is not a final state
+	if err == nil {
+		t.Errorf("Expected retryable error for non-final state, got no error")
+	}
+
+	// Verify the model was updated to "running" status from mock response
+	if model.Status.ValueString() != "running" {
+		t.Errorf("Expected status 'running', got: %s", model.Status.ValueString())
+	}
+
+	// Check the captured tflog output
+	logOutput := logBuffer.String()
+	t.Logf("📋 Captured tflog output:\n%s", logOutput)
+
+	// Validate that our tflog.Debug call was made with expected content
+	if len(logOutput) == 0 {
+		t.Errorf("❌ No tflog output captured - tflog.Debug may not have been called")
+	} else {
+		// Look for key elements of our log message
+		if strings.Contains(logOutput, "Job status update") {
+			t.Logf("✅ Found 'Job status update' message in tflog output")
+		} else {
+			t.Errorf("❌ 'Job status update' message not found in tflog output")
+		}
+
+		if strings.Contains(logOutput, "job_template_id") {
+			t.Logf("✅ Found 'job_template_id' field in tflog output")
+		} else {
+			t.Errorf("❌ 'job_template_id' field not found in tflog output")
+		}
+
+		if strings.Contains(logOutput, "job_url") {
+			t.Logf("✅ Found 'job_url' field in tflog output")
+		} else {
+			t.Errorf("❌ 'job_url' field not found in tflog output")
+		}
+
+		if strings.Contains(logOutput, "status") {
+			t.Logf("✅ Found 'status' field in tflog output")
+		} else {
+			t.Errorf("❌ 'status' field not found in tflog output")
+		}
+
+		if strings.Contains(logOutput, "running") {
+			t.Logf("✅ Found expected status value 'running' in tflog output")
+		} else {
+			t.Errorf("❌ Expected status value 'running' not found in tflog output")
+		}
+	}
+
+	// Verify no stdout spam (this is implicitly tested by the clean execution)
+	t.Logf("✅ Retry function executed cleanly with proper tflog.Debug logging")
 }
 
 // Custom mock client that changes response based on call count
